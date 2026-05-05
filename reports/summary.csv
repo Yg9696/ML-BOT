@@ -1,0 +1,5 @@
+scenario,trades,years,trades_per_year,ev_r,total_r,max_drawdown_r,max_losing_streak,top_symbol_ev_share,top_month_ev_share,verdict
+base_next_open,5440,3.3182751540041067,1639.4059405940595,-0.16351100317860456,-889.4998572916088,-888.298754543198,29,0.0,0.0,"FAIL: base_next_open_ev, base_next_close_ev, stress_ev_positive, next_close_not_collapsed, losing_streak"
+base_next_close,5359,3.3182751540041067,1614.9956683168318,-0.1623951019475091,-870.2753513367013,-869.0754206813082,47,0.0,0.0,"FAIL: base_next_open_ev, base_next_close_ev, stress_ev_positive, next_close_not_collapsed, losing_streak"
+stress_next_open,5440,3.3182751540041067,1639.4059405940595,-0.32414213116799717,-1763.3331935539045,-1761.9309880570775,29,0.0,0.0,"FAIL: base_next_open_ev, base_next_close_ev, stress_ev_positive, next_close_not_collapsed, losing_streak"
+stress_next_close,5359,3.3182751540041067,1614.9956683168318,-0.32320526031563174,-1732.0569900314706,-1730.6571287206812,47,0.0,0.0,"FAIL: base_next_open_ev, base_next_close_ev, stress_ev_positive, next_close_not_collapsed, losing_streak"
