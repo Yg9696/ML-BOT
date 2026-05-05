@@ -97,10 +97,16 @@ def interval_to_ms(interval: str) -> int:
     return amount * factors[unit]
 
 
-def default_start_end() -> tuple[datetime, datetime]:
-    end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    start = end - timedelta(days=365)
-    return start, end
+def interval_to_timedelta(interval: str) -> pd.Timedelta:
+    unit = interval[-1]
+    amount = int(interval[:-1])
+    if unit == "m":
+        return pd.Timedelta(minutes=amount)
+    if unit == "h":
+        return pd.Timedelta(hours=amount)
+    if unit == "d":
+        return pd.Timedelta(days=amount)
+    raise ValueError(f"Unsupported interval for timestamp semantics: {interval}")
 
 
 def download_klines(symbol: str, interval: str, start: datetime, end: datetime, out_path: Path) -> None:
@@ -176,6 +182,42 @@ def load_ohlcv(path: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def validate_ohlcv_quality(
+    symbol: str,
+    timeframe: str,
+    path: Path,
+    df: pd.DataFrame,
+    start: datetime,
+    end: datetime,
+) -> dict[str, object]:
+    raw = pd.read_csv(path, usecols=[0])
+    raw_timestamps = pd.to_datetime(raw.iloc[:, 0], utc=True, errors="coerce")
+    expected_delta = interval_to_timedelta(timeframe)
+    diffs = df["timestamp"].diff().dropna()
+    unexpected_gaps = diffs[diffs != expected_delta]
+    expected_rows = int(((pd.Timestamp(end) - pd.Timestamp(start)) / expected_delta)) + 1
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "path": str(path),
+        "rows": int(df.shape[0]),
+        "expected_rows": expected_rows,
+        "sufficient_data": bool(df.shape[0] >= max(DEFAULT_EMA_PERIOD + DEFAULT_EMA_SLOPE_LOOKBACK, DEFAULT_ROOM_LOOKBACK)),
+        "duplicate_timestamps": int(raw_timestamps.duplicated().sum()),
+        "missing_timestamps": int(max(expected_rows - df.shape[0], 0)),
+        "unexpected_gaps": int(unexpected_gaps.shape[0]),
+        "max_gap": str(unexpected_gaps.max()) if not unexpected_gaps.empty else "",
+        "first_timestamp": df["timestamp"].min().isoformat(),
+        "last_timestamp": df["timestamp"].max().isoformat(),
+        "quality_ok": bool(
+            raw_timestamps.duplicated().sum() == 0
+            and max(expected_rows - df.shape[0], 0) == 0
+            and unexpected_gaps.empty
+            and df.shape[0] >= max(DEFAULT_EMA_PERIOD + DEFAULT_EMA_SLOPE_LOOKBACK, DEFAULT_ROOM_LOOKBACK)
+        ),
+    }
+
+
 def ensure_data(
     symbols: list[str],
     timeframes: list[str],
@@ -183,8 +225,9 @@ def ensure_data(
     start: datetime,
     end: datetime,
     download: bool,
-) -> dict[tuple[str, str], pd.DataFrame]:
+) -> tuple[dict[tuple[str, str], pd.DataFrame], pd.DataFrame]:
     loaded: dict[tuple[str, str], pd.DataFrame] = {}
+    quality_rows: list[dict[str, object]] = []
     for timeframe in timeframes:
         for symbol in symbols:
             path = data_dir / timeframe / f"{symbol}.csv"
@@ -208,8 +251,9 @@ def ensure_data(
             df = df.loc[mask].reset_index(drop=True)
             if df.empty:
                 raise RuntimeError(f"No rows in requested date range for {symbol} {timeframe}")
+            quality_rows.append(validate_ohlcv_quality(symbol, timeframe, source_path, df, start, end))
             loaded[(symbol, timeframe)] = df
-    return loaded
+    return loaded, pd.DataFrame(quality_rows)
 
 
 def add_base_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -329,21 +373,34 @@ def simulate_symbol(
     long_signals = rows["long_signal"].to_numpy(dtype=bool)
     short_signals = rows["short_signal"].to_numpy(dtype=bool)
     signal_indices = np.flatnonzero(long_signals | short_signals)
+    timeframe_delta = interval_to_timedelta(timeframe)
 
     for signal_i in signal_indices:
         if signal_i < next_signal_index:
             continue
         side = "long" if long_signals[signal_i] else "short"
 
+        atr = float(atrs[signal_i])
+        risk = p.stop_atr_mult * atr
+        if not math.isfinite(risk) or risk <= 0:
+            continue
+
+        signal_close = float(closes[signal_i])
+        if side == "long":
+            structure = float(room_swing_highs[signal_i])
+            available_room = structure - signal_close if math.isfinite(structure) and structure > signal_close else math.nan
+        else:
+            structure = float(room_swing_lows[signal_i])
+            available_room = signal_close - structure if math.isfinite(structure) and structure < signal_close else math.nan
+        room_to_target_r = available_room / risk if math.isfinite(available_room) else math.nan
+        if filters.use_room_filter and (not math.isfinite(room_to_target_r) or room_to_target_r < filters.min_room_r):
+            continue
+
         entry_i = signal_i + 1
         if entry_i >= len(rows):
             break
         raw_entry = float(opens[entry_i] if entry_mode == "next_open" else closes[entry_i])
         entry = apply_entry_slippage(raw_entry, side, friction)
-        atr = float(atrs[signal_i])
-        risk = p.stop_atr_mult * atr
-        if not math.isfinite(risk) or risk <= 0:
-            continue
 
         if side == "long":
             stop = entry - risk
@@ -351,16 +408,6 @@ def simulate_symbol(
         else:
             stop = entry + risk
             target = entry - p.target_r * risk
-
-        if side == "long":
-            structure = float(room_swing_highs[signal_i])
-            available_room = structure - entry if structure > entry else target - entry
-        else:
-            structure = float(room_swing_lows[signal_i])
-            available_room = entry - structure if structure < entry else entry - target
-        available_room_r = available_room / risk
-        if filters.use_room_filter and available_room_r < filters.min_room_r:
-            continue
 
         first_exit_i = entry_i if entry_mode == "next_open" else entry_i + 1
         last_exit_i = min(entry_i + max_hold, len(rows) - 1)
@@ -403,7 +450,12 @@ def simulate_symbol(
                 "friction_case": friction.name,
                 "entry_mode": entry_mode,
                 "signal_time": timestamps[signal_i],
-                "entry_time": timestamps[entry_i],
+                "entry_time": (
+                    pd.Timestamp(timestamps[entry_i])
+                    if entry_mode == "next_open"
+                    else pd.Timestamp(timestamps[entry_i]) + timeframe_delta
+                ),
+                "entry_time_semantic": "next_candle_open" if entry_mode == "next_open" else "next_candle_close",
                 "exit_time": timestamps[exit_i],
                 "side": side,
                 "raw_entry": raw_entry,
@@ -415,7 +467,9 @@ def simulate_symbol(
                 "atr_at_signal": atr,
                 "risk": risk,
                 "room_structure": structure,
-                "available_room_r": available_room_r,
+                "room_reference_price": signal_close,
+                "room_to_target_r": room_to_target_r,
+                "available_room_r": room_to_target_r,
                 "ema_200_at_signal": float(ema_values[signal_i]),
                 "ema_200_slope_at_signal": float(ema_slopes[signal_i]),
                 "ema_distance_atr_at_signal": float(ema_distances[signal_i]),
@@ -675,12 +729,11 @@ def param_grid() -> list[ParamSet]:
 
 
 def parse_args() -> argparse.Namespace:
-    start, end = default_start_end()
     parser = argparse.ArgumentParser(description="Phase 1-2 OHLCV-only volatility expansion backtest.")
     parser.add_argument("--data-dir", type=Path, default=Path("data") / "binance_um_ohlcv")
     parser.add_argument("--out-dir", type=Path, default=Path("reports") / "phase_1_2")
-    parser.add_argument("--start", default=start.isoformat())
-    parser.add_argument("--end", default=end.isoformat())
+    parser.add_argument("--start", required=True, help="Explicit UTC start timestamp/date, e.g. 2025-05-05T00:00:00Z.")
+    parser.add_argument("--end", required=True, help="Explicit UTC end timestamp/date, e.g. 2026-05-05T00:00:00Z.")
     parser.add_argument("--symbols", nargs="+", default=SYMBOLS)
     parser.add_argument("--timeframes", nargs="+", default=TIMEFRAMES)
     parser.add_argument("--download", action="store_true", help="Force fresh Binance USD-M futures OHLCV download.")
@@ -722,7 +775,7 @@ def main() -> None:
         max_ema_distance_atr=args.max_ema_distance_atr,
     )
 
-    loaded = ensure_data(symbols, timeframes, args.data_dir, start, end, args.download)
+    loaded, data_quality = ensure_data(symbols, timeframes, args.data_dir, start, end, args.download)
     featured = {key: add_base_features(df) for key, df in loaded.items()}
     params = param_grid()
 
@@ -755,17 +808,21 @@ def main() -> None:
     overall, by_symbol, by_month, execution_comparison = build_summaries(trades)
 
     trades_path = args.out_dir / "trades.csv"
+    trades_sample_path = args.out_dir / "trades_sample.csv"
     overall_path = args.out_dir / "overall_results.csv"
     by_symbol_path = args.out_dir / "by_symbol.csv"
     by_month_path = args.out_dir / "by_month.csv"
     execution_path = args.out_dir / "execution_comparison.csv"
+    data_quality_path = args.out_dir / "data_quality_report.csv"
     summary_path = args.out_dir / "phase_1_2_summary.json"
 
     trades.to_csv(trades_path, index=False)
+    trades.head(1000).to_csv(trades_sample_path, index=False)
     overall.to_csv(overall_path, index=False)
     by_symbol.to_csv(by_symbol_path, index=False)
     by_month.to_csv(by_month_path, index=False)
     execution_comparison.to_csv(execution_path, index=False)
+    data_quality.to_csv(data_quality_path, index=False)
 
     top_overall = overall.sort_values("ev_per_trade_r", ascending=False).head(10).to_dict(orient="records")
     baseline_mask = (
@@ -802,29 +859,35 @@ def main() -> None:
             "Signals are evaluated only after the signal candle close.",
             "Breakout, ATR, and volume z-score reference previous candles only.",
             "Volume z-score uses the same prior N-window as the breakout lookback.",
-            "Room filter rejects entries with less than the configured R distance to recent structure.",
+            "Room filter eligibility is decided at signal time using signal close and prior-data structure only.",
+            "Signals with no measurable prior-data structure ahead are rejected by the room filter.",
             "Trend filter requires close/EMA200 alignment and EMA200 slope alignment.",
             "Overextension filter rejects signals beyond the configured ATR distance from EMA.",
-            "next_open entries execute at the next candle open; next_close entries execute at the next candle close.",
+            "next_open entries execute at the next candle open timestamp; next_close entries execute at the next candle close and entry_time is shifted to close semantics.",
             "SL/TP are evaluated with OHLC after entry; if both are touched in one candle, SL wins.",
             "SL/TP exits are modeled at the trigger level with adverse slippage and taker fees.",
             "Only one trade per symbol/scenario is active at a time.",
         ],
         "reports": {
             "trades_csv": str(trades_path),
+            "trades_sample_csv": str(trades_sample_path),
             "overall_results_csv": str(overall_path),
             "by_symbol_csv": str(by_symbol_path),
             "by_month_csv": str(by_month_path),
             "execution_comparison_csv": str(execution_path),
+            "data_quality_report_csv": str(data_quality_path),
             "phase_1_2_summary_json": str(summary_path),
         },
         "data_ranges": data_ranges,
+        "data_quality": data_quality.to_dict(orient="records"),
         "baseline_base_next_open": baseline,
         "top_10_by_ev_per_trade": top_overall,
     }
     write_json(summary_path, summary)
 
     print(f"Wrote Phase 1-2 reports to {args.out_dir.resolve()}")
+    if not data_quality["quality_ok"].all():
+        print("WARNING: Data quality report contains failures. Review data_quality_report.csv before trusting results.")
     if not overall.empty:
         print(overall.sort_values("ev_per_trade_r", ascending=False).head(12).to_string(index=False))
 
