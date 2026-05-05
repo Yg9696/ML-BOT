@@ -34,6 +34,11 @@ VOL_Z_MINS = [1.0, 1.5, 2.0]
 CLOSE_LOC_LONG_MINS = [0.70, 0.75, 0.80]
 CLOSE_LOC_SHORT_MAXS = [0.30, 0.25, 0.20]
 ENTRY_MODES = ["next_open", "next_close"]
+DEFAULT_ROOM_LOOKBACK = 50
+DEFAULT_MIN_ROOM_R = 1.5
+DEFAULT_EMA_PERIOD = 200
+DEFAULT_EMA_SLOPE_LOOKBACK = 10
+DEFAULT_MAX_EMA_DISTANCE_ATR = 3.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +65,18 @@ class Friction:
     name: str
     taker_fee_rate: float
     slippage_rate: float
+
+
+@dataclass(frozen=True)
+class SignalFilters:
+    use_room_filter: bool = True
+    room_lookback: int = DEFAULT_ROOM_LOOKBACK
+    min_room_r: float = DEFAULT_MIN_ROOM_R
+    use_trend_filter: bool = True
+    ema_period: int = DEFAULT_EMA_PERIOD
+    ema_slope_lookback: int = DEFAULT_EMA_SLOPE_LOOKBACK
+    use_overextension_filter: bool = True
+    max_ema_distance_atr: float = DEFAULT_MAX_EMA_DISTANCE_ATR
 
 
 def parse_utc(value: str) -> datetime:
@@ -209,25 +226,53 @@ def add_base_features(df: pd.DataFrame) -> pd.DataFrame:
     out["candle_range"] = out["high"] - out["low"]
     out["close_location"] = (out["close"] - out["low"]) / out["candle_range"].replace(0, np.nan)
     out["atr_14_prior"] = out["true_range"].rolling(14, min_periods=14).mean().shift(1)
+    out["ema_200"] = out["close"].ewm(span=DEFAULT_EMA_PERIOD, adjust=False, min_periods=DEFAULT_EMA_PERIOD).mean()
+    out["ema_200_slope"] = out["ema_200"] - out["ema_200"].shift(DEFAULT_EMA_SLOPE_LOOKBACK)
+    out["room_swing_high"] = out["high"].rolling(DEFAULT_ROOM_LOOKBACK, min_periods=DEFAULT_ROOM_LOOKBACK).max().shift(1)
+    out["room_swing_low"] = out["low"].rolling(DEFAULT_ROOM_LOOKBACK, min_periods=DEFAULT_ROOM_LOOKBACK).min().shift(1)
     return out
 
 
-def add_param_features(df: pd.DataFrame, p: ParamSet) -> pd.DataFrame:
+def add_param_features(df: pd.DataFrame, p: ParamSet, filters: SignalFilters) -> pd.DataFrame:
     out = df.copy()
+    if filters.ema_period != DEFAULT_EMA_PERIOD:
+        out["ema_200"] = out["close"].ewm(span=filters.ema_period, adjust=False, min_periods=filters.ema_period).mean()
+    if filters.ema_slope_lookback != DEFAULT_EMA_SLOPE_LOOKBACK or filters.ema_period != DEFAULT_EMA_PERIOD:
+        out["ema_200_slope"] = out["ema_200"] - out["ema_200"].shift(filters.ema_slope_lookback)
+    if filters.room_lookback != DEFAULT_ROOM_LOOKBACK:
+        out["room_swing_high"] = out["high"].rolling(filters.room_lookback, min_periods=filters.room_lookback).max().shift(1)
+        out["room_swing_low"] = out["low"].rolling(filters.room_lookback, min_periods=filters.room_lookback).min().shift(1)
+
     out["prior_high"] = out["high"].rolling(p.n, min_periods=p.n).max().shift(1)
     out["prior_low"] = out["low"].rolling(p.n, min_periods=p.n).min().shift(1)
     vol_mean = out["volume"].rolling(p.n, min_periods=p.n).mean().shift(1)
     vol_std = out["volume"].rolling(p.n, min_periods=p.n).std(ddof=0).shift(1)
     out["volume_z"] = (out["volume"] - vol_mean) / vol_std.replace(0, np.nan)
-    valid = out[["prior_high", "prior_low", "atr_14_prior", "volume_z", "close_location"]].notna().all(axis=1)
+    required = ["prior_high", "prior_low", "atr_14_prior", "volume_z", "close_location"]
+    if filters.use_trend_filter or filters.use_overextension_filter:
+        required.extend(["ema_200", "ema_200_slope"])
+    if filters.use_room_filter:
+        required.extend(["room_swing_high", "room_swing_low"])
+    valid = out[required].notna().all(axis=1)
     expansion = out["candle_range"] > p.atr_mult * out["atr_14_prior"]
     volume_ok = out["volume_z"] > p.vol_z_min
+    trend_long = (out["close"] > out["ema_200"]) & (out["ema_200_slope"] > 0)
+    trend_short = (out["close"] < out["ema_200"]) & (out["ema_200_slope"] < 0)
+    if not filters.use_trend_filter:
+        trend_long = pd.Series(True, index=out.index)
+        trend_short = pd.Series(True, index=out.index)
+    ema_distance_atr = (out["close"] - out["ema_200"]).abs() / out["atr_14_prior"].replace(0, np.nan)
+    not_overextended = ema_distance_atr <= filters.max_ema_distance_atr
+    if not filters.use_overextension_filter:
+        not_overextended = pd.Series(True, index=out.index)
     out["long_signal"] = (
         valid
         & (out["close"] > out["prior_high"])
         & expansion
         & volume_ok
         & (out["close_location"] >= p.close_loc_long_min)
+        & trend_long
+        & not_overextended
     )
     out["short_signal"] = (
         valid
@@ -235,7 +280,10 @@ def add_param_features(df: pd.DataFrame, p: ParamSet) -> pd.DataFrame:
         & expansion
         & volume_ok
         & (out["close_location"] <= p.close_loc_short_max)
+        & trend_short
+        & not_overextended
     )
+    out["ema_distance_atr"] = ema_distance_atr
     return out
 
 
@@ -258,10 +306,11 @@ def simulate_symbol(
     timeframe: str,
     data: pd.DataFrame,
     p: ParamSet,
+    filters: SignalFilters,
     friction: Friction,
     entry_mode: str,
 ) -> list[dict[str, object]]:
-    rows = add_param_features(data, p).reset_index(drop=True)
+    rows = add_param_features(data, p, filters).reset_index(drop=True)
     max_hold = 12 if timeframe == "1h" else 8
     trades: list[dict[str, object]] = []
     next_signal_index = 0
@@ -272,6 +321,11 @@ def simulate_symbol(
     lows = rows["low"].to_numpy(dtype=float)
     closes = rows["close"].to_numpy(dtype=float)
     atrs = rows["atr_14_prior"].to_numpy(dtype=float)
+    room_swing_highs = rows["room_swing_high"].to_numpy(dtype=float)
+    room_swing_lows = rows["room_swing_low"].to_numpy(dtype=float)
+    ema_values = rows["ema_200"].to_numpy(dtype=float)
+    ema_slopes = rows["ema_200_slope"].to_numpy(dtype=float)
+    ema_distances = rows["ema_distance_atr"].to_numpy(dtype=float)
     long_signals = rows["long_signal"].to_numpy(dtype=bool)
     short_signals = rows["short_signal"].to_numpy(dtype=bool)
     signal_indices = np.flatnonzero(long_signals | short_signals)
@@ -297,6 +351,16 @@ def simulate_symbol(
         else:
             stop = entry + risk
             target = entry - p.target_r * risk
+
+        if side == "long":
+            structure = float(room_swing_highs[signal_i])
+            available_room = structure - entry if structure > entry else target - entry
+        else:
+            structure = float(room_swing_lows[signal_i])
+            available_room = entry - structure if structure < entry else entry - target
+        available_room_r = available_room / risk
+        if filters.use_room_filter and available_room_r < filters.min_room_r:
+            continue
 
         first_exit_i = entry_i if entry_mode == "next_open" else entry_i + 1
         last_exit_i = min(entry_i + max_hold, len(rows) - 1)
@@ -350,6 +414,11 @@ def simulate_symbol(
                 "target": target,
                 "atr_at_signal": atr,
                 "risk": risk,
+                "room_structure": structure,
+                "available_room_r": available_room_r,
+                "ema_200_at_signal": float(ema_values[signal_i]),
+                "ema_200_slope_at_signal": float(ema_slopes[signal_i]),
+                "ema_distance_atr_at_signal": float(ema_distances[signal_i]),
                 "gross_r": gross_r,
                 "fee_r": fee_r,
                 "net_r": net_r,
@@ -365,6 +434,14 @@ def simulate_symbol(
                 "stop_atr_mult": p.stop_atr_mult,
                 "target_r": p.target_r,
                 "max_hold_bars": max_hold,
+                "use_room_filter": filters.use_room_filter,
+                "room_lookback": filters.room_lookback,
+                "min_room_r": filters.min_room_r,
+                "use_trend_filter": filters.use_trend_filter,
+                "ema_period": filters.ema_period,
+                "ema_slope_lookback": filters.ema_slope_lookback,
+                "use_overextension_filter": filters.use_overextension_filter,
+                "max_ema_distance_atr": filters.max_ema_distance_atr,
             }
         )
         next_signal_index = exit_i + 1
@@ -521,6 +598,14 @@ def build_summaries(trades: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, p
         "taker_fee_bps_per_side",
         "slippage_bps_per_side",
         "max_hold_bars",
+        "use_room_filter",
+        "room_lookback",
+        "min_room_r",
+        "use_trend_filter",
+        "ema_period",
+        "ema_slope_lookback",
+        "use_overextension_filter",
+        "max_ema_distance_atr",
     ]
     if trades.empty:
         empty = summarize_empty(scenario_cols)
@@ -552,6 +637,14 @@ def build_summaries(trades: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, p
         "vol_z_min",
         "close_loc_long_min",
         "close_loc_short_max",
+        "use_room_filter",
+        "room_lookback",
+        "min_room_r",
+        "use_trend_filter",
+        "ema_period",
+        "ema_slope_lookback",
+        "use_overextension_filter",
+        "max_ema_distance_atr",
     ]
     open_rows = overall[overall["entry_mode"] == "next_open"].set_index(pivot_keys)
     close_rows = overall[overall["entry_mode"] == "next_close"].set_index(pivot_keys)
@@ -591,6 +684,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--symbols", nargs="+", default=SYMBOLS)
     parser.add_argument("--timeframes", nargs="+", default=TIMEFRAMES)
     parser.add_argument("--download", action="store_true", help="Force fresh Binance USD-M futures OHLCV download.")
+    parser.add_argument("--disable-room-filter", action="store_true")
+    parser.add_argument("--room-lookback", type=int, default=DEFAULT_ROOM_LOOKBACK)
+    parser.add_argument("--min-room-r", type=float, default=DEFAULT_MIN_ROOM_R)
+    parser.add_argument("--disable-trend-filter", action="store_true")
+    parser.add_argument("--ema-period", type=int, default=DEFAULT_EMA_PERIOD)
+    parser.add_argument("--ema-slope-lookback", type=int, default=DEFAULT_EMA_SLOPE_LOOKBACK)
+    parser.add_argument("--disable-overextension-filter", action="store_true")
+    parser.add_argument("--max-ema-distance-atr", type=float, default=DEFAULT_MAX_EMA_DISTANCE_ATR)
     return parser.parse_args()
 
 
@@ -610,6 +711,16 @@ def main() -> None:
         Friction(name="base", taker_fee_rate=0.0004, slippage_rate=0.0005),
         Friction(name="stress", taker_fee_rate=0.0008, slippage_rate=0.0010),
     ]
+    filters = SignalFilters(
+        use_room_filter=not args.disable_room_filter,
+        room_lookback=args.room_lookback,
+        min_room_r=args.min_room_r,
+        use_trend_filter=not args.disable_trend_filter,
+        ema_period=args.ema_period,
+        ema_slope_lookback=args.ema_slope_lookback,
+        use_overextension_filter=not args.disable_overextension_filter,
+        max_ema_distance_atr=args.max_ema_distance_atr,
+    )
 
     loaded = ensure_data(symbols, timeframes, args.data_dir, start, end, args.download)
     featured = {key: add_base_features(df) for key, df in loaded.items()}
@@ -627,6 +738,7 @@ def main() -> None:
                                 timeframe=timeframe,
                                 data=featured[(symbol, timeframe)],
                                 p=p,
+                                filters=filters,
                                 friction=friction,
                                 entry_mode=entry_mode,
                             )
@@ -685,10 +797,14 @@ def main() -> None:
         "scenario_count": int(overall.shape[0]),
         "total_trade_rows": int(trades.shape[0]),
         "friction": [asdict(friction) for friction in frictions],
+        "signal_filters": asdict(filters),
         "execution_assumptions": [
             "Signals are evaluated only after the signal candle close.",
             "Breakout, ATR, and volume z-score reference previous candles only.",
             "Volume z-score uses the same prior N-window as the breakout lookback.",
+            "Room filter rejects entries with less than the configured R distance to recent structure.",
+            "Trend filter requires close/EMA200 alignment and EMA200 slope alignment.",
+            "Overextension filter rejects signals beyond the configured ATR distance from EMA.",
             "next_open entries execute at the next candle open; next_close entries execute at the next candle close.",
             "SL/TP are evaluated with OHLC after entry; if both are touched in one candle, SL wins.",
             "SL/TP exits are modeled at the trigger level with adverse slippage and taker fees.",
