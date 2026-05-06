@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -32,6 +34,17 @@ ATR_PERIOD = 14
 VOL_LOOKBACK_BARS = 96
 VOL_THRESHOLD_LOOKBACK = 96 * 30
 VOL_THRESHOLD_QUANTILE = 0.67
+LISTING_STARTS = {
+    "BTCUSDT": "2020-01-01T00:00:00+00:00",
+    "ETHUSDT": "2020-01-01T00:00:00+00:00",
+    "XRPUSDT": "2020-01-06T08:15:00+00:00",
+    "LTCUSDT": "2020-01-09T08:00:00+00:00",
+    "LINKUSDT": "2020-01-17T08:00:00+00:00",
+    "ADAUSDT": "2020-01-31T08:00:00+00:00",
+    "BNBUSDT": "2020-02-10T08:00:00+00:00",
+    "SOLUSDT": "2020-09-14T07:00:00+00:00",
+    "AVAXUSDT": "2020-09-23T07:00:00+00:00",
+}
 
 
 @dataclass(frozen=True)
@@ -150,6 +163,7 @@ def load_ohlcv(path: Path) -> pd.DataFrame:
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     returns = out["close"].pct_change()
+    prior_returns = returns.shift(1)
     prev_close = out["close"].shift(1)
     tr = pd.concat(
         [
@@ -166,14 +180,21 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     out["ema200"] = out["close"].ewm(span=200, adjust=False).mean()
     out["ema50_slope_24"] = out["ema50"] / out["ema50"].shift(24) - 1.0
     out["ema200_slope_24"] = out["ema200"] / out["ema200"].shift(24) - 1.0
-    out["realized_vol_96"] = returns.rolling(VOL_LOOKBACK_BARS, min_periods=48).std()
+    out["realized_vol_96"] = prior_returns.rolling(VOL_LOOKBACK_BARS, min_periods=48).std()
     out["realized_vol_threshold"] = out["realized_vol_96"].rolling(VOL_THRESHOLD_LOOKBACK, min_periods=VOL_LOOKBACK_BARS * 7).quantile(VOL_THRESHOLD_QUANTILE).shift(1)
     out["high_vol_regime"] = out["realized_vol_96"] >= out["realized_vol_threshold"]
     return out
 
 
+def listing_start(symbol: str, requested_start: pd.Timestamp) -> pd.Timestamp:
+    known = parse_utc(LISTING_STARTS.get(symbol, requested_start.isoformat()))
+    return max(requested_start, known)
+
+
 def data_quality(symbol: str, df: pd.DataFrame, requested_start: pd.Timestamp, requested_end: pd.Timestamp) -> dict[str, object]:
     expected = pd.date_range(start=requested_start, end=requested_end, freq="15min", inclusive="left")
+    listing_aware_start = listing_start(symbol, requested_start)
+    listing_expected = pd.date_range(start=listing_aware_start, end=requested_end, freq="15min", inclusive="left")
     timestamps = pd.DatetimeIndex(df["timestamp"])
     gaps = timestamps.to_series().diff().dropna()
     expected_delta = pd.Timedelta(minutes=15)
@@ -184,11 +205,15 @@ def data_quality(symbol: str, df: pd.DataFrame, requested_start: pd.Timestamp, r
         "timeframe": TIMEFRAME,
         "requested_start": requested_start.isoformat(),
         "requested_end": requested_end.isoformat(),
+        "listing_aware_start": listing_aware_start.isoformat(),
         "first_timestamp": first_ts.isoformat() if pd.notna(first_ts) else None,
         "last_timestamp": last_ts.isoformat() if pd.notna(last_ts) else None,
         "rows": int(len(df)),
         "expected_rows_from_requested_start": int(len(expected)),
         "missing_rows_vs_requested_start": int(len(expected.difference(timestamps))),
+        "pre_listing_unavailable_rows": max(0, int((listing_aware_start - requested_start) / pd.Timedelta(minutes=15))),
+        "expected_rows_from_listing_start": int(len(listing_expected)),
+        "true_internal_missing_rows": int(len(listing_expected.difference(timestamps))),
         "duplicate_rows": int(df["timestamp"].duplicated().sum()),
         "large_gap_count": int((gaps > expected_delta).sum()),
         "max_gap_minutes": float(gaps.max().total_seconds() / 60.0) if not gaps.empty else 0.0,
@@ -205,9 +230,11 @@ def ensure_data(symbols: list[str], data_dir: Path, start: pd.Timestamp, end: pd
         needs_download = download or not path.exists()
         if not needs_download:
             probe = load_ohlcv(path)
-            # Some contracts listed after the requested full-history start. Once the local file reaches
-            # the requested end, do not re-download just because pre-listing rows do not exist.
-            needs_download = probe["timestamp"].max() < end - pd.Timedelta(minutes=15)
+            required_start = listing_start(symbol, start)
+            needs_download = (
+                probe["timestamp"].max() < end - pd.Timedelta(minutes=15)
+                or probe["timestamp"].min() > required_start + pd.Timedelta(minutes=15)
+            )
         if needs_download:
             print(f"Downloading {symbol} {TIMEFRAME} from {start.isoformat()} to {end.isoformat()}")
             download_klines(symbol, TIMEFRAME, start, end, path)
@@ -262,6 +289,7 @@ def simulate_symbol(symbol: str, df: pd.DataFrame, entry_mode: str, model: ExitM
     ema50_slopes = df["ema50_slope_24"].to_numpy(dtype=float)
     ema200_slopes = df["ema200_slope_24"].to_numpy(dtype=float)
     trades: list[dict[str, object]] = []
+    bar_delta = pd.Timedelta(minutes=15)
     for signal_i in signal_indices:
         entry_i = signal_i + 1
         final_exit_i = entry_i + model.horizon_bars
@@ -283,28 +311,42 @@ def simulate_symbol(symbol: str, df: pd.DataFrame, entry_mode: str, model: ExitM
             gross_return += weight * (exit_price / entry_price - 1.0)
             exit_fee += weight * friction.taker_fee_rate
             weighted_exit_price += weight * exit_price
-            leg_details.append(f"{reason}:{weight}@{pd.Timestamp(timestamps[exit_i]).isoformat()}")
+            leg_details.append(f"{reason}:{weight}@{(pd.Timestamp(timestamps[exit_i]) + bar_delta).isoformat()}")
         exit_i = max(leg[0] for leg in exit_legs)
         net_return = gross_return - friction.taker_fee_rate - exit_fee
+        signal_open_time = pd.Timestamp(timestamps[signal_i])
+        entry_candle_open_time = pd.Timestamp(timestamps[entry_i])
+        entry_time = entry_candle_open_time + bar_delta if entry_mode == "next_close" else entry_candle_open_time
+        exit_time = pd.Timestamp(timestamps[exit_i]) + bar_delta
         trades.append(
             {
                 "symbol": symbol,
                 "timeframe": TIMEFRAME,
                 "entry_mode": entry_mode,
+                "entry_time_semantic": "next_candle_close" if entry_mode == "next_close" else "next_candle_open",
                 "exit_model": model.name,
                 "friction_case": friction.name,
-                "signal_time": timestamps[signal_i],
-                "entry_time": timestamps[entry_i],
-                "exit_time": timestamps[exit_i],
+                "friction_mode": friction.name,
+                "event_time": signal_open_time,
+                "signal_time": signal_open_time,
+                "signal_close_time": signal_open_time + bar_delta,
+                "entry_candle_open_time": entry_candle_open_time,
+                "entry_time": entry_time,
+                "exit_time": exit_time,
                 "signal_return": event_returns[signal_i],
+                "event_return_pct": event_returns[signal_i] * 100.0,
                 "entry_price": entry_price,
                 "exit_price": weighted_exit_price,
                 "realized_vol_96": realized_vols[signal_i],
+                "realized_vol_regime_value": realized_vols[signal_i],
                 "realized_vol_threshold": thresholds[signal_i],
                 "simultaneous_down_2pct_count": counts[signal_i],
+                "breadth_count": counts[signal_i],
                 "btc_return_24h": btc_returns[signal_i],
                 "ema50_slope_24": ema50_slopes[signal_i],
+                "ema50_slope": ema50_slopes[signal_i],
                 "ema200_slope_24": ema200_slopes[signal_i],
+                "ema200_slope": ema200_slopes[signal_i],
                 "horizon_bars": model.horizon_bars,
                 "exit_legs": ";".join(leg_details),
                 "gross_return": gross_return,
@@ -316,6 +358,19 @@ def simulate_symbol(symbol: str, df: pd.DataFrame, entry_mode: str, model: ExitM
             }
         )
     return trades
+
+
+def add_concurrent_positions(trades: pd.DataFrame) -> pd.DataFrame:
+    scenario_cols = ["entry_mode", "exit_model", "friction_case", "horizon_bars", "taker_fee_bps_per_side", "slippage_bps_per_side"]
+    out = trades.copy()
+    out["concurrent_positions"] = 0
+    for _, idx in out.groupby(scenario_cols, sort=False, dropna=False).groups.items():
+        group = out.loc[idx].sort_values(["entry_time", "exit_time", "symbol"]).copy()
+        starts = group["entry_time"].sort_values().to_numpy()
+        ends = group["exit_time"].sort_values().to_numpy()
+        concurrent = np.searchsorted(starts, group["entry_time"].to_numpy(), side="right") - np.searchsorted(ends, group["entry_time"].to_numpy(), side="left")
+        out.loc[group.index, "concurrent_positions"] = concurrent
+    return out
 
 
 def max_drawdown(values: Iterable[float]) -> float:
@@ -337,6 +392,21 @@ def max_losing_streak(values: Iterable[float]) -> int:
     return worst
 
 
+def exposure_stats(group: pd.DataFrame) -> tuple[float, int, float]:
+    changes: list[tuple[pd.Timestamp, int]] = []
+    for row in group.itertuples(index=False):
+        changes.append((row.entry_time, 1))
+        changes.append((row.exit_time, -1))
+    active = 0
+    samples: list[int] = []
+    for _, delta in sorted(changes, key=lambda item: (item[0], -item[1])):
+        active += delta
+        samples.append(active)
+    if not samples:
+        return 0.0, 0, 0.0
+    return float(np.mean(samples)), int(np.max(samples)), float(np.quantile(samples, 0.95))
+
+
 def summarize_group(group: pd.DataFrame, group_cols: list[str], window_start: pd.Timestamp | None = None, window_end: pd.Timestamp | None = None) -> dict[str, object]:
     ordered = group.sort_values(["exit_time", "symbol"]).reset_index(drop=True)
     returns = ordered["net_return"]
@@ -350,6 +420,7 @@ def summarize_group(group: pd.DataFrame, group_cols: list[str], window_start: pd
     cumulative = float(returns.sum())
     month_returns = ordered.assign(month=ordered["exit_time"].dt.strftime("%Y-%m")).groupby("month")["net_return"].sum()
     symbol_returns = ordered.groupby("symbol")["net_return"].sum()
+    avg_exposure, max_exposure, p95_exposure = exposure_stats(ordered)
     out = {col: ordered[col].iloc[0] for col in group_cols}
     out.update(
         {
@@ -373,6 +444,9 @@ def summarize_group(group: pd.DataFrame, group_cols: list[str], window_start: pd
             "best_symbol_contribution": float(symbol_returns.max() / cumulative) if cumulative > 0 else np.nan,
             "positive_month_rate": float((month_returns > 0).mean()),
             "positive_symbol_rate": float((symbol_returns > 0).mean()),
+            "average_concurrent_positions": avg_exposure,
+            "max_concurrent_positions": max_exposure,
+            "p95_concurrent_positions": p95_exposure,
         }
     )
     return out
@@ -492,6 +566,13 @@ def json_safe(value: object) -> object:
     return value
 
 
+def git_commit_hash() -> str | None:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Extended-history validation for the panic-reversal bot.")
     parser.add_argument("--data-dir", type=Path, default=Path("data") / "binance_um_ohlcv")
@@ -530,6 +611,9 @@ def main() -> None:
         raise RuntimeError("No trades generated.")
     for col in ["signal_time", "entry_time", "exit_time"]:
         trades[col] = pd.to_datetime(trades[col], utc=True)
+    for col in ["event_time", "signal_close_time", "entry_candle_open_time"]:
+        trades[col] = pd.to_datetime(trades[col], utc=True)
+    trades = add_concurrent_positions(trades)
     trades = trades.sort_values(["exit_model", "friction_case", "entry_mode", "exit_time", "symbol"]).reset_index(drop=True)
     overall, by_year, by_month, by_symbol = build_windowed_metrics(trades, start, end)
     execution_comparison = build_execution_comparison(overall)
@@ -543,7 +627,10 @@ def main() -> None:
         "by_symbol_csv": args.out_dir / "by_symbol.csv",
         "execution_comparison_csv": args.out_dir / "execution_comparison.csv",
         "equity_curve_csv": args.out_dir / "equity_curve.csv",
+        "trade_returns_csv": args.out_dir / "trade_returns.csv",
+        "trade_returns_sample_csv": args.out_dir / "trade_returns_sample.csv",
         "data_quality_report_csv": args.out_dir / "data_quality_report.csv",
+        "run_config_json": args.out_dir / "run_config.json",
         "extended_validation_summary_json": args.out_dir / "extended_validation_summary.json",
     }
     overall.to_csv(paths["overall_results_csv"], index=False)
@@ -552,7 +639,35 @@ def main() -> None:
     by_symbol.to_csv(paths["by_symbol_csv"], index=False)
     execution_comparison.to_csv(paths["execution_comparison_csv"], index=False)
     equity.to_csv(paths["equity_curve_csv"], index=False)
+    trades.to_csv(paths["trade_returns_csv"], index=False)
+    trades.head(5000).to_csv(paths["trade_returns_sample_csv"], index=False)
     quality.to_csv(paths["data_quality_report_csv"], index=False)
+    run_config = {
+        "command": " ".join(sys.argv),
+        "download_used": bool(args.download),
+        "data_dir": str(args.data_dir),
+        "out_dir": str(args.out_dir),
+        "git_commit_hash_at_run_start": git_commit_hash(),
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "symbols": SYMBOLS,
+        "timeframe": TIMEFRAME,
+        "strategy_config": asdict(config),
+        "entry_modes": ["next_close", "next_open"],
+        "primary_entry_mode": "next_close",
+        "exit_models": [asdict(model) for model in models],
+        "primary_exit_model": "pure_horizon_12",
+        "friction": [asdict(friction) for friction in frictions],
+        "volatility_filter": {
+            "feature": "realized_vol_96",
+            "prior_only": True,
+            "lookback_bars": VOL_LOOKBACK_BARS,
+            "threshold_lookback_bars": VOL_THRESHOLD_LOOKBACK,
+            "rolling_quantile": VOL_THRESHOLD_QUANTILE,
+            "threshold_shifted_by_one_bar": True,
+        },
+    }
+    paths["run_config_json"].write_text(json.dumps(json_safe(run_config), indent=2, allow_nan=False), encoding="utf-8")
     summary = {
         "run_time_utc": datetime.now(timezone.utc).isoformat(),
         "scope": "Extended-history validation for exact Panic-Reversal Bot Phase 1 configuration.",
@@ -561,9 +676,15 @@ def main() -> None:
         "start": start.isoformat(),
         "end": end.isoformat(),
         "strategy_config": asdict(config),
+        "run_config": run_config,
+        "git_commit_hash_at_run_start": run_config["git_commit_hash_at_run_start"],
+        "download_used": bool(args.download),
+        "command": run_config["command"],
         "volatility_filter": {
             "feature": "realized_vol_96",
-            "lookback_bars": VOL_THRESHOLD_LOOKBACK,
+            "prior_only": True,
+            "lookback_bars": VOL_LOOKBACK_BARS,
+            "threshold_lookback_bars": VOL_THRESHOLD_LOOKBACK,
             "rolling_quantile": VOL_THRESHOLD_QUANTILE,
             "threshold_shifted_by_one_bar": True,
         },

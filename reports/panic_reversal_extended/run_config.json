@@ -1,0 +1,71 @@
+{
+  "command": "scripts\\panic_reversal_extended_validation.py --start 2020-01-01T00:00:00+00:00 --end 2026-05-04T00:00:00+00:00",
+  "download_used": false,
+  "data_dir": "data\\binance_um_ohlcv",
+  "out_dir": "reports\\panic_reversal_extended",
+  "git_commit_hash_at_run_start": "33386c4599ac0c8776463f8275549729a8a7560f",
+  "start": "2020-01-01T00:00:00+00:00",
+  "end": "2026-05-04T00:00:00+00:00",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT"
+  ],
+  "timeframe": "15m",
+  "strategy_config": {
+    "event_threshold": -0.03,
+    "min_simultaneous_drops": 4,
+    "btc_24h_must_be_negative": true,
+    "ema50_slope_must_be_negative": true,
+    "ema200_slope_must_be_negative": true
+  },
+  "entry_modes": [
+    "next_close",
+    "next_open"
+  ],
+  "primary_entry_mode": "next_close",
+  "exit_models": [
+    {
+      "name": "pure_horizon_12",
+      "horizon_bars": 12,
+      "scaled_exit": false
+    },
+    {
+      "name": "pure_horizon_6",
+      "horizon_bars": 6,
+      "scaled_exit": false
+    },
+    {
+      "name": "scaled_exit_6_12",
+      "horizon_bars": 12,
+      "scaled_exit": true
+    }
+  ],
+  "primary_exit_model": "pure_horizon_12",
+  "friction": [
+    {
+      "name": "base",
+      "taker_fee_rate": 0.0004,
+      "slippage_rate": 0.0005
+    },
+    {
+      "name": "stress",
+      "taker_fee_rate": 0.0008,
+      "slippage_rate": 0.001
+    }
+  ],
+  "volatility_filter": {
+    "feature": "realized_vol_96",
+    "prior_only": true,
+    "lookback_bars": 96,
+    "threshold_lookback_bars": 2880,
+    "rolling_quantile": 0.67,
+    "threshold_shifted_by_one_bar": true
+  }
+}
