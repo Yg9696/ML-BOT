@@ -1,0 +1,8 @@
+rank,scenario,expected_ev_potential,expected_annual_return_potential,expected_trade_frequency,execution_reliability,fee_slippage_sensitivity,expected_drawdown_risk,data_availability,overfitting_risk,capital_efficiency,quick_test_with_existing_code,total_score,likely_to_beat_current_panic_reversal,top_reason
+1,Liquidation / OI Flush Reversal,5,5,3,4,3,3,4,3,5,5,40,Yes,"Directly targets forced-positioning events that should be larger and cleaner than OHLCV-only panic candles."
+2,Panic Reversal with improved flow/OI filters,4,4,3,4,3,3,4,3,4,5,37,Yes,"Builds on the only validated edge while adding positioning context that may reduce concentration and improve capital efficiency."
+3,Cross-Asset Dislocation Reversion,4,4,4,4,4,3,5,2,4,3,37,Possibly,"Can create frequent executable relative-value mean reversion using only synchronized OHLCV at first, but true dislocation definitions can overfit."
+4,Funding/carry with risk filters,3,3,4,5,4,2,5,3,3,5,37,Unclear,"Very testable and execution-clean, but prior funding reaction failed and raw carry can be slow with crash risk."
+5,Portfolio rotation / relative momentum,3,3,4,5,4,3,5,2,3,4,36,Unclear,"Likely robust and low-friction, but may not reach strong EV or annual return without leverage and careful risk control."
+6,Trend-following / momentum breakout on higher timeframe,3,4,2,5,5,3,5,2,3,4,36,Unclear,"Execution is clean and robust, but earlier breakout work was weak and trade frequency/capital efficiency may be limited."
+7,Volatility compression to expansion,2,3,3,4,3,3,5,2,3,4,32,No,"Prior volatility expansion failed; without new information source this family is least likely to beat current evidence."
