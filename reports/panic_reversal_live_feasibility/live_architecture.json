@@ -1,0 +1,406 @@
+{
+  "scope": {
+    "deliverable": "Live feasibility and implementation architecture plan",
+    "live_trading_enabled": false,
+    "orders_enabled": false,
+    "strategy_changes_allowed": false,
+    "ml_allowed": false,
+    "notes": "This document describes how to implement the selected Panic-Reversal Bot configuration later. It does not build or enable live execution."
+  },
+  "strategy_config": {
+    "name": "Panic-Reversal Bot",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "LTCUSDT"
+    ],
+    "timeframe": "15m",
+    "direction": "long_only",
+    "event_return_threshold": -0.03,
+    "breadth_return_threshold": -0.02,
+    "min_breadth_count": 4,
+    "btc_24h_return_filter": {
+      "operator": "<",
+      "value": 0.0
+    },
+    "ema_filters": {
+      "ema50_slope": "< 0",
+      "ema200_slope": "< 0"
+    },
+    "realized_volatility_filter": {
+      "prior_only": true,
+      "example_return_lookback_bars": 96,
+      "example_threshold_lookback_bars": 2880,
+      "example_percentile_threshold": 0.67,
+      "threshold_shifted_before_event": true
+    },
+    "entry": {
+      "mode": "next_close",
+      "comparison_mode": "next_open",
+      "order_type": "market",
+      "no_intrabar_entry": true
+    },
+    "exit": {
+      "primary_model": "pure_horizon_12",
+      "hold_bars": 12,
+      "timeframe": "15m",
+      "scheduled_exit_after_minutes": 180
+    },
+    "stacking": {
+      "enabled": true,
+      "max_concurrent_positions": 10,
+      "max_positions_per_symbol": 2,
+      "selection_policy_when_over_cap": "largest_drop"
+    },
+    "allocation": {
+      "fixed_equity_fraction_per_accepted_position": 0.02,
+      "max_exposure_target": 0.2
+    }
+  },
+  "live_data_requirements": {
+    "exchange": "Binance USD-M Futures",
+    "required_endpoints": [
+      {
+        "name": "klines",
+        "method": "GET",
+        "path": "/fapi/v1/klines",
+        "purpose": "Fetch 15m OHLCV candles for all symbols."
+      },
+      {
+        "name": "exchange_time",
+        "method": "GET",
+        "path": "/fapi/v1/time",
+        "purpose": "Check clock drift and align polling to exchange time."
+      },
+      {
+        "name": "exchange_info",
+        "method": "GET",
+        "path": "/fapi/v1/exchangeInfo",
+        "purpose": "Validate symbols, trading status, precision, and quantity constraints."
+      },
+      {
+        "name": "account",
+        "method": "GET",
+        "path": "/fapi/v2/account",
+        "purpose": "Read equity, balances, and account exposure for later paper/live phases."
+      },
+      {
+        "name": "position_risk",
+        "method": "GET",
+        "path": "/fapi/v2/positionRisk",
+        "purpose": "Reconcile exchange positions against local state before live trading."
+      }
+    ],
+    "polling": {
+      "interval": "15m",
+      "poll_after_close_delay_seconds": 5,
+      "retry_until_all_symbols_complete": true,
+      "alignment_key": "candle_open_time",
+      "completed_candle_rule": "A 15m candle is complete only when exchange server time is greater than or equal to open_time + 15m and the following candle has started or the close can be confirmed by a later poll."
+    },
+    "duplicate_prevention": {
+      "processed_event_key": [
+        "symbol",
+        "event_candle_open_time",
+        "config_version"
+      ],
+      "cycle_key": [
+        "candle_open_time",
+        "config_version"
+      ],
+      "action": "Skip any signal or cycle already recorded in durable state."
+    },
+    "data_quality_checks": [
+      "Missing completed candles by symbol.",
+      "Misaligned candle close sets across symbols.",
+      "Zero or abnormal volume rows.",
+      "Symbol trading status changes.",
+      "Clock drift between host and Binance server."
+    ]
+  },
+  "signal_engine": {
+    "calculation_order": [
+      "Fetch and validate the same completed event candle for all symbols.",
+      "Append completed candles to local candle store.",
+      "Compute close-to-close event return for each symbol.",
+      "Compute prior-only realized volatility using candles strictly before the event candle.",
+      "Compute prior-only realized volatility regime threshold from history ending before the event candle.",
+      "Compute BTC 24h return ending at the event candle close.",
+      "Compute EMA50 and EMA200 values and slopes as of the event candle close.",
+      "Compute breadth count as the number of tracked symbols with event return <= -2% on the same event candle timestamp.",
+      "Select candidate long events where return <= -3%, realized volatility is in the high regime, breadth >= 4, BTC 24h return < 0, EMA50 slope < 0, and EMA200 slope < 0.",
+      "If accepted candidates exceed available caps, sort by largest drop magnitude and take only candidates that fit risk limits.",
+      "Record accepted, skipped, and duplicate signals with deterministic reasons."
+    ],
+    "breadth": {
+      "timestamp_scope": "same completed 15m event candle",
+      "threshold": -0.02,
+      "minimum_count": 4,
+      "universe": "configured 9-symbol universe"
+    },
+    "btc_context": {
+      "symbol": "BTCUSDT",
+      "lookback": "24h",
+      "bars": 96,
+      "return_type": "close_to_close"
+    },
+    "ema_slope": {
+      "ema50": {
+        "period": 50,
+        "slope_definition": "current EMA50 minus prior EMA50",
+        "required_direction": "negative"
+      },
+      "ema200": {
+        "period": 200,
+        "slope_definition": "current EMA200 minus prior EMA200",
+        "required_direction": "negative"
+      }
+    },
+    "realized_volatility": {
+      "prior_only": true,
+      "event_candle_excluded": true,
+      "implementation_rule": "Shift realized-volatility features and regime thresholds by one completed candle before evaluating the event candle."
+    }
+  },
+  "execution_timing": {
+    "primary_entry_semantic": "next_candle_close",
+    "timeline": [
+      {
+        "step": 1,
+        "time": "T",
+        "description": "Event candle closes. The bot fetches completed OHLCV and calculates signals."
+      },
+      {
+        "step": 2,
+        "time": "T to T+15m",
+        "description": "No entry occurs. The next candle forms."
+      },
+      {
+        "step": 3,
+        "time": "T+15m close confirmation",
+        "description": "The bot confirms the next candle close, rechecks risk caps, then sends market entry orders for accepted signals."
+      },
+      {
+        "step": 4,
+        "time": "T+15m to T+195m",
+        "description": "Open positions are tracked as stacked fixed-allocation positions."
+      },
+      {
+        "step": 5,
+        "time": "12 candles after entry",
+        "description": "The bot sends market exit orders for positions reaching the scheduled pure_horizon_12 exit."
+      }
+    ],
+    "important_live_implication": "next_close requires waiting one full 15m candle after the signal candle closes before entering."
+  },
+  "position_management": {
+    "position_state_fields": [
+      "position_id",
+      "symbol",
+      "side",
+      "signal_candle_open_time",
+      "signal_close_time",
+      "entry_due_time",
+      "entry_time_semantic",
+      "actual_entry_time",
+      "entry_price",
+      "quantity",
+      "allocation_fraction",
+      "exit_due_time",
+      "actual_exit_time",
+      "exit_price",
+      "status",
+      "config_version"
+    ],
+    "states": [
+      "signal_accepted",
+      "entry_pending",
+      "open",
+      "exit_pending",
+      "closed",
+      "skipped",
+      "failed"
+    ],
+    "cap_rules": {
+      "concurrent_cap": 10,
+      "symbol_cap": 2,
+      "max_exposure_fraction": 0.2,
+      "selection_policy": "largest_drop",
+      "cap_recheck_before_entry": true
+    },
+    "scheduled_exits": {
+      "model": "pure_horizon_12",
+      "exit_order_type": "market",
+      "exit_after_entry_bars": 12
+    }
+  },
+  "risk_engine": {
+    "allocation": {
+      "fraction_per_position": 0.02,
+      "max_target_exposure": 0.2,
+      "quantity_basis": "available account equity at entry decision time"
+    },
+    "hard_limits": {
+      "max_concurrent_positions": 10,
+      "max_positions_per_symbol": 2,
+      "emergency_max_exposure_fraction": 0.2
+    },
+    "recommended_pause_conditions": [
+      "Daily realized plus unrealized loss exceeds configured threshold.",
+      "Exchange reconciliation differs from local open-position state.",
+      "Data for any required symbol is stale or missing at decision time.",
+      "Binance server clock drift exceeds tolerance.",
+      "Observed spread or slippage exceeds configured threshold.",
+      "Order rejection or partial-fill handling cannot resolve state deterministically."
+    ],
+    "cluster_stress_mode": {
+      "enabled_for_decisioning": true,
+      "trigger": "breadth_count >= 5 or unusually wide spread",
+      "action": "Use stricter slippage assumptions, optionally pause entries if effective execution cost exceeds allowed threshold."
+    }
+  },
+  "persistence": {
+    "required_tables_or_files": [
+      "candles_15m",
+      "processed_signal_timestamps",
+      "accepted_signals",
+      "skipped_signals",
+      "open_positions",
+      "closed_trades",
+      "order_intents",
+      "order_responses",
+      "account_snapshots",
+      "config_versions",
+      "scheduler_runs",
+      "audit_logs"
+    ],
+    "restart_requirements": [
+      "Reload config version.",
+      "Reload processed signal keys.",
+      "Reload open positions and pending exits.",
+      "Reconcile with Binance account and position endpoints before any new order action.",
+      "Resume scheduled exits without duplicating entries."
+    ]
+  },
+  "failure_modes": [
+    {
+      "mode": "Binance API unavailable",
+      "mitigation": "Retry with backoff; skip new entries when data cannot be confirmed; preserve pending exits for manual or later automated handling."
+    },
+    {
+      "mode": "Delayed candle fetch",
+      "mitigation": "Poll again after a short delay; require all symbols to share the same completed candle timestamp before breadth calculation."
+    },
+    {
+      "mode": "Duplicate poll or webhook",
+      "mitigation": "Use durable processed keys before creating entries or order intents."
+    },
+    {
+      "mode": "Render restart",
+      "mitigation": "Persist all pending/open state and reconcile before resuming scheduler actions."
+    },
+    {
+      "mode": "Partial order fill",
+      "mitigation": "Record actual fill quantity and price; adjust scheduled exit quantity to actual filled size."
+    },
+    {
+      "mode": "Order rejected",
+      "mitigation": "Mark order intent failed, pause symbol if needed, and do not assume exposure exists."
+    },
+    {
+      "mode": "Position already exists",
+      "mitigation": "Allow only if it maps to known stacked position state and symbol cap permits it; otherwise pause and reconcile."
+    },
+    {
+      "mode": "Symbol delisted or not trading",
+      "mitigation": "Remove symbol from live universe only through explicit config change; skip entries while status is not TRADING."
+    },
+    {
+      "mode": "Large spread or slippage",
+      "mitigation": "Activate cluster stress checks and pause entries if effective cost exceeds threshold."
+    },
+    {
+      "mode": "Clock drift",
+      "mitigation": "Compare host time with /fapi/v1/time before decision cycles; pause if drift is outside tolerance."
+    }
+  ],
+  "implementation_phases": [
+    {
+      "phase": 0,
+      "name": "Architecture and config freeze",
+      "order_enabled": false,
+      "goal": "Convert this plan into versioned config and module contracts."
+    },
+    {
+      "phase": 1,
+      "name": "Dry-run signal logging",
+      "order_enabled": false,
+      "goal": "Poll live candles and log accepted/skipped signals without account access."
+    },
+    {
+      "phase": 2,
+      "name": "Read-only Binance diagnostics",
+      "order_enabled": false,
+      "goal": "Validate server time, exchange info, balances, and reconciliation behavior."
+    },
+    {
+      "phase": 3,
+      "name": "Simulated orders",
+      "order_enabled": false,
+      "goal": "Create order intents, simulated fills, scheduled exits, and full audit logs."
+    },
+    {
+      "phase": 4,
+      "name": "Paper trading for production-like event count",
+      "order_enabled": false,
+      "goal": "Run through at least 50 accepted events or 30 days, whichever takes longer."
+    },
+    {
+      "phase": 5,
+      "name": "Small-capital live pilot",
+      "order_enabled": true,
+      "goal": "Use reduced allocation and strict pause rules after paper-mode go criteria are met."
+    }
+  ],
+  "code_modules": {
+    "data_fetcher": "Fetch and validate Binance 15m candles, server time, and symbol metadata.",
+    "signal_engine": "Compute event returns, breadth, BTC 24h return, EMA slopes, and prior-only realized-volatility regime.",
+    "risk_engine": "Apply allocation, exposure caps, symbol caps, pause rules, and cluster stress checks.",
+    "position_manager": "Manage accepted signals, pending entries, stacked open positions, scheduled exits, and closed trades.",
+    "execution_client": "Abstract order placement; starts with no-op and paper clients before Binance live adapter.",
+    "state_store": "Persist candles, processed keys, signals, positions, order intents, fills, config versions, and logs.",
+    "scheduler": "Run candle-close polling, entry-due checks, exit-due checks, reconciliation, and report jobs.",
+    "reporting": "Produce dry-run/live diagnostics, skipped signal reports, exposure reports, and trade ledgers."
+  },
+  "go_no_go_criteria": {
+    "paper_mode_go": [
+      "No duplicate signals or duplicate order intents across restarts.",
+      "Live dry-run signal counts match a replay backtest for the same period.",
+      "All accepted and skipped signals include deterministic reason codes.",
+      "Scheduled exits fire exactly 12 completed 15m candles after simulated entry.",
+      "Exchange time drift, stale data, and missing candles trigger pauses.",
+      "State can be rebuilt and reconciled after restart."
+    ],
+    "small_live_pilot_go": [
+      "Paper trading covers at least 50 accepted events or 30 calendar days.",
+      "Observed next_close entry delay and slippage stay within configured assumptions.",
+      "No unresolved reconciliation breaks.",
+      "Exposure never exceeds the configured emergency cap.",
+      "Manual emergency stop and pause controls are tested.",
+      "Small pilot starts below the selected 2% allocation until operational behavior is proven."
+    ],
+    "no_go_conditions": [
+      "Any duplicate live order risk remains.",
+      "Candle alignment across symbols is unreliable.",
+      "Backtest/live replay mismatch cannot be explained.",
+      "Partial fills or rejected orders leave ambiguous position state.",
+      "Observed execution costs materially exceed stress assumptions."
+    ]
+  }
+}
