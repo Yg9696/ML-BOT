@@ -2,3 +2,7 @@ reports/phase_1_2/trades.csv
 reports/shock_continuation/trades.csv
 reports/funding_reaction/trades.csv
 reports/extreme_down_mean_reversion/trades.csv
+__pycache__/
+*.pyc
+bot/panic_reversal/state/
+bot/panic_reversal/logs/
