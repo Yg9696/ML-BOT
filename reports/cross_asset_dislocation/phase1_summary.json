@@ -1,0 +1,686 @@
+{
+  "run_time_utc": "2026-05-07T11:07:25.761266+00:00",
+  "scope": "Cross-Asset Dislocation Reversion Phase 1 event scan and feasibility backtest.",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT"
+  ],
+  "non_btc_traded_symbols": [
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "LTCUSDT"
+  ],
+  "timeframe": "15m",
+  "start": "2020-01-01T00:00:00+00:00",
+  "end": "2026-05-04T00:00:00+00:00",
+  "event_definitions_tested": [
+    {
+      "name": "basket_return_le_1%",
+      "column": "basket_median_return",
+      "operator": "<=",
+      "threshold": -0.01
+    },
+    {
+      "name": "btc_return_le_1%",
+      "column": "btc_return",
+      "operator": "<=",
+      "threshold": -0.01
+    },
+    {
+      "name": "basket_return_le_2%",
+      "column": "basket_median_return",
+      "operator": "<=",
+      "threshold": -0.02
+    },
+    {
+      "name": "btc_return_le_2%",
+      "column": "btc_return",
+      "operator": "<=",
+      "threshold": -0.02
+    },
+    {
+      "name": "basket_return_le_3%",
+      "column": "basket_median_return",
+      "operator": "<=",
+      "threshold": -0.03
+    },
+    {
+      "name": "btc_return_le_3%",
+      "column": "btc_return",
+      "operator": "<=",
+      "threshold": -0.03
+    },
+    {
+      "name": "breadth_down_1pct_ge_4",
+      "column": "breadth_down_1pct",
+      "operator": ">=",
+      "threshold": 4
+    },
+    {
+      "name": "breadth_down_1pct_ge_5",
+      "column": "breadth_down_1pct",
+      "operator": ">=",
+      "threshold": 5
+    },
+    {
+      "name": "breadth_down_1pct_ge_6",
+      "column": "breadth_down_1pct",
+      "operator": ">=",
+      "threshold": 6
+    },
+    {
+      "name": "breadth_down_2pct_ge_4",
+      "column": "breadth_down_2pct",
+      "operator": ">=",
+      "threshold": 4
+    },
+    {
+      "name": "breadth_down_2pct_ge_5",
+      "column": "breadth_down_2pct",
+      "operator": ">=",
+      "threshold": 5
+    },
+    {
+      "name": "breadth_down_2pct_ge_6",
+      "column": "breadth_down_2pct",
+      "operator": ">=",
+      "threshold": 6
+    }
+  ],
+  "dislocation_definitions_tested": [
+    {
+      "name": "rel_btc_le_1%",
+      "column": "rel_to_btc",
+      "operator": "<=",
+      "threshold": -0.01
+    },
+    {
+      "name": "rel_basket_le_1%",
+      "column": "rel_to_basket",
+      "operator": "<=",
+      "threshold": -0.01
+    },
+    {
+      "name": "rel_btc_le_2%",
+      "column": "rel_to_btc",
+      "operator": "<=",
+      "threshold": -0.02
+    },
+    {
+      "name": "rel_basket_le_2%",
+      "column": "rel_to_basket",
+      "operator": "<=",
+      "threshold": -0.02
+    },
+    {
+      "name": "rel_btc_le_3%",
+      "column": "rel_to_btc",
+      "operator": "<=",
+      "threshold": -0.03
+    },
+    {
+      "name": "rel_basket_le_3%",
+      "column": "rel_to_basket",
+      "operator": "<=",
+      "threshold": -0.03
+    },
+    {
+      "name": "symbol_zscore_le_-1",
+      "column": "symbol_return_zscore",
+      "operator": "<=",
+      "threshold": -1.0
+    },
+    {
+      "name": "symbol_zscore_le_-2",
+      "column": "symbol_return_zscore",
+      "operator": "<=",
+      "threshold": -2.0
+    },
+    {
+      "name": "rel_btc_le_-1_atr_equiv",
+      "column": "rel_btc_atr_equiv",
+      "operator": "<=",
+      "threshold": -1.0
+    },
+    {
+      "name": "rel_basket_le_-1_atr_equiv",
+      "column": "rel_basket_atr_equiv",
+      "operator": "<=",
+      "threshold": -1.0
+    },
+    {
+      "name": "bottom_1_performer",
+      "column": "underperformance_rank",
+      "operator": "<=",
+      "threshold": 1
+    },
+    {
+      "name": "bottom_2_performer",
+      "column": "underperformance_rank",
+      "operator": "<=",
+      "threshold": 2
+    },
+    {
+      "name": "bottom_3_performer",
+      "column": "underperformance_rank",
+      "operator": "<=",
+      "threshold": 3
+    }
+  ],
+  "execution": {
+    "entry_modes": [
+      "next_close",
+      "next_open"
+    ],
+    "market_execution_only": true,
+    "limit_orders": false
+  },
+  "exit_models": [
+    {
+      "name": "fixed_horizon_6",
+      "horizon_bars": 6,
+      "scaled_exit": false
+    },
+    {
+      "name": "fixed_horizon_12",
+      "horizon_bars": 12,
+      "scaled_exit": false
+    },
+    {
+      "name": "scaled_exit_6_12",
+      "horizon_bars": 12,
+      "scaled_exit": true
+    }
+  ],
+  "friction": [
+    {
+      "name": "base",
+      "taker_fee_rate": 0.0004,
+      "slippage_rate": 0.0005
+    },
+    {
+      "name": "stress",
+      "taker_fee_rate": 0.0008,
+      "slippage_rate": 0.001
+    }
+  ],
+  "total_signal_rows": 34918,
+  "total_trade_rows": 419016,
+  "best_candidates_next_close_h12_base": [
+    {
+      "event_definition": "breadth_down_2pct_ge_4",
+      "dislocation_definition": "symbol_zscore_le_-2",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 308,
+      "trades_year": 48.594816414686825,
+      "avg_return_pct": 0.7222112629646759,
+      "median_return_pct": 0.12074381778616425,
+      "win_rate": 0.5551948051948052,
+      "cumulative_return_units": 2.2244106899312017,
+      "max_drawdown_units": -0.7039449599105121,
+      "sharpe_like": 2.8925598070290377,
+      "profit_factor": 1.9415698892398832,
+      "best_month_contribution": 0.6261816311136019,
+      "best_symbol_contribution": 0.269462992997945,
+      "positive_month_rate": 0.6666666666666666,
+      "positive_symbol_rate": 1.0
+    },
+    {
+      "event_definition": "breadth_down_2pct_ge_4",
+      "dislocation_definition": "symbol_zscore_le_-1",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 327,
+      "trades_year": 51.59254859611231,
+      "avg_return_pct": 0.7142049346200953,
+      "median_return_pct": 0.13177920584496414,
+      "win_rate": 0.5596330275229358,
+      "cumulative_return_units": 2.3354501362077116,
+      "max_drawdown_units": -0.7635268754993163,
+      "sharpe_like": 2.997290700915266,
+      "profit_factor": 1.9263691492235118,
+      "best_month_contribution": 0.6446122706961299,
+      "best_symbol_contribution": 0.273010883407963,
+      "positive_month_rate": 0.6666666666666666,
+      "positive_symbol_rate": 1.0
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_6",
+      "dislocation_definition": "rel_btc_le_1%",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 372,
+      "trades_year": 58.692440604751624,
+      "avg_return_pct": 0.7067183431349381,
+      "median_return_pct": 0.3508028014914811,
+      "win_rate": 0.5967741935483871,
+      "cumulative_return_units": 2.62899223646197,
+      "max_drawdown_units": -0.897181413800148,
+      "sharpe_like": 3.1798558162582795,
+      "profit_factor": 1.9317680312240517,
+      "best_month_contribution": 0.6328216273631102,
+      "best_symbol_contribution": 0.31213147356260434,
+      "positive_month_rate": 0.6363636363636364,
+      "positive_symbol_rate": 0.875
+    },
+    {
+      "event_definition": "basket_return_le_1%",
+      "dislocation_definition": "rel_btc_le_1%",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 419,
+      "trades_year": 66.10788336933045,
+      "avg_return_pct": 0.5829750334694321,
+      "median_return_pct": 0.3260651705298568,
+      "win_rate": 0.5775656324582339,
+      "cumulative_return_units": 2.442665390236921,
+      "max_drawdown_units": -0.8729063276456436,
+      "sharpe_like": 2.8930372917602845,
+      "profit_factor": 1.7256380025379825,
+      "best_month_contribution": 0.7005350103155601,
+      "best_symbol_contribution": 0.3110481193609121,
+      "positive_month_rate": 0.6363636363636364,
+      "positive_symbol_rate": 1.0
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_5",
+      "dislocation_definition": "rel_btc_le_1%",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 419,
+      "trades_year": 66.10788336933045,
+      "avg_return_pct": 0.5829750334694321,
+      "median_return_pct": 0.3260651705298568,
+      "win_rate": 0.5775656324582339,
+      "cumulative_return_units": 2.442665390236921,
+      "max_drawdown_units": -0.8729063276456436,
+      "sharpe_like": 2.8930372917602845,
+      "profit_factor": 1.7256380025379825,
+      "best_month_contribution": 0.7005350103155601,
+      "best_symbol_contribution": 0.3110481193609121,
+      "positive_month_rate": 0.6363636363636364,
+      "positive_symbol_rate": 1.0
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_4",
+      "dislocation_definition": "rel_btc_le_1%",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 465,
+      "trades_year": 73.36555075593952,
+      "avg_return_pct": 0.4746348908149889,
+      "median_return_pct": 0.32058072938187193,
+      "win_rate": 0.5720430107526882,
+      "cumulative_return_units": 2.207052242289698,
+      "max_drawdown_units": -1.2146689649147515,
+      "sharpe_like": 2.521377383306118,
+      "profit_factor": 1.5454926324654883,
+      "best_month_contribution": 0.7849833681329113,
+      "best_symbol_contribution": 0.34156596014685675,
+      "positive_month_rate": 0.36363636363636365,
+      "positive_symbol_rate": 1.0
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_6",
+      "dislocation_definition": "rel_btc_le_-1_atr_equiv",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 537,
+      "trades_year": 84.72537796976242,
+      "avg_return_pct": 0.3102062295865097,
+      "median_return_pct": 0.14016915552294237,
+      "win_rate": 0.5605214152700186,
+      "cumulative_return_units": 1.665807452879557,
+      "max_drawdown_units": -1.2642299968692035,
+      "sharpe_like": 2.0234218383369753,
+      "profit_factor": 1.4342344040252795,
+      "best_month_contribution": 0.3699748017643435,
+      "best_symbol_contribution": 0.34352651937326434,
+      "positive_month_rate": 0.5,
+      "positive_symbol_rate": 1.0
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_6",
+      "dislocation_definition": "bottom_2_performer",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 394,
+      "trades_year": 62.1634989200864,
+      "avg_return_pct": 0.22408778958978412,
+      "median_return_pct": 0.1563941798470548,
+      "win_rate": 0.5380710659898477,
+      "cumulative_return_units": 0.8829058909837495,
+      "max_drawdown_units": -0.6350832404020156,
+      "sharpe_like": 1.3047487446642905,
+      "profit_factor": 1.275660258440899,
+      "best_month_contribution": 0.5446039794479375,
+      "best_symbol_contribution": 0.6494041702053878,
+      "positive_month_rate": 0.5833333333333334,
+      "positive_symbol_rate": 0.75
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_6",
+      "dislocation_definition": "bottom_3_performer",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 591,
+      "trades_year": 93.2452483801296,
+      "avg_return_pct": 0.21704578693914314,
+      "median_return_pct": 0.14612112956170717,
+      "win_rate": 0.5397631133671743,
+      "cumulative_return_units": 1.282740600810336,
+      "max_drawdown_units": -0.8807576569571132,
+      "sharpe_like": 1.5732262139011142,
+      "profit_factor": 1.271264966589085,
+      "best_month_contribution": 0.5797839635069824,
+      "best_symbol_contribution": 0.5243606194225833,
+      "positive_month_rate": 0.75,
+      "positive_symbol_rate": 0.75
+    },
+    {
+      "event_definition": "basket_return_le_1%",
+      "dislocation_definition": "rel_btc_le_-1_atr_equiv",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 655,
+      "trades_year": 103.34287257019439,
+      "avg_return_pct": 0.16988562765165927,
+      "median_return_pct": 0.11502189851665631,
+      "win_rate": 0.5389312977099237,
+      "cumulative_return_units": 1.1127508611183683,
+      "max_drawdown_units": -1.1627580602376377,
+      "sharpe_like": 1.2974085635094077,
+      "profit_factor": 1.2185756080478045,
+      "best_month_contribution": 0.5784929677512979,
+      "best_symbol_contribution": 0.4519771921512332,
+      "positive_month_rate": 0.5,
+      "positive_symbol_rate": 0.875
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_5",
+      "dislocation_definition": "rel_btc_le_-1_atr_equiv",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 655,
+      "trades_year": 103.34287257019439,
+      "avg_return_pct": 0.16988562765165927,
+      "median_return_pct": 0.11502189851665631,
+      "win_rate": 0.5389312977099237,
+      "cumulative_return_units": 1.1127508611183683,
+      "max_drawdown_units": -1.1627580602376377,
+      "sharpe_like": 1.2974085635094077,
+      "profit_factor": 1.2185756080478045,
+      "best_month_contribution": 0.5784929677512979,
+      "best_symbol_contribution": 0.4519771921512332,
+      "positive_month_rate": 0.5,
+      "positive_symbol_rate": 0.875
+    },
+    {
+      "event_definition": "basket_return_le_1%",
+      "dislocation_definition": "bottom_3_performer",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 777,
+      "trades_year": 122.59146868250541,
+      "avg_return_pct": 0.08062154520827249,
+      "median_return_pct": 0.06762237972341109,
+      "win_rate": 0.5135135135135135,
+      "cumulative_return_units": 0.6264294062682773,
+      "max_drawdown_units": -1.62413031850756,
+      "sharpe_like": 0.7208099732632104,
+      "profit_factor": 1.0937991102248386,
+      "best_month_contribution": 0.922309889761119,
+      "best_symbol_contribution": 0.9367808519160871,
+      "positive_month_rate": 0.5833333333333334,
+      "positive_symbol_rate": 0.625
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_5",
+      "dislocation_definition": "bottom_3_performer",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 777,
+      "trades_year": 122.59146868250541,
+      "avg_return_pct": 0.08062154520827249,
+      "median_return_pct": 0.06762237972341109,
+      "win_rate": 0.5135135135135135,
+      "cumulative_return_units": 0.6264294062682773,
+      "max_drawdown_units": -1.62413031850756,
+      "sharpe_like": 0.7208099732632104,
+      "profit_factor": 1.0937991102248386,
+      "best_month_contribution": 0.922309889761119,
+      "best_symbol_contribution": 0.9367808519160871,
+      "positive_month_rate": 0.5833333333333334,
+      "positive_symbol_rate": 0.625
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_4",
+      "dislocation_definition": "rel_btc_le_-1_atr_equiv",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 797,
+      "trades_year": 125.74697624190065,
+      "avg_return_pct": 0.07822303301512665,
+      "median_return_pct": 0.08973773044064445,
+      "win_rate": 0.5257214554579673,
+      "cumulative_return_units": 0.6234375731305594,
+      "max_drawdown_units": -1.691145931992959,
+      "sharpe_like": 0.6981318882094965,
+      "profit_factor": 1.0973579936639262,
+      "best_month_contribution": 1.0342042111338867,
+      "best_symbol_contribution": 0.7862611779470179,
+      "positive_month_rate": 0.4166666666666667,
+      "positive_symbol_rate": 0.75
+    },
+    {
+      "event_definition": "basket_return_le_1%",
+      "dislocation_definition": "bottom_2_performer",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 518,
+      "trades_year": 81.72764578833693,
+      "avg_return_pct": 0.07704155827799003,
+      "median_return_pct": 0.06796419025053799,
+      "win_rate": 0.5115830115830116,
+      "cumulative_return_units": 0.39907527187998837,
+      "max_drawdown_units": -1.024053561799575,
+      "sharpe_like": 0.5519970414441921,
+      "profit_factor": 1.0871905952999832,
+      "best_month_contribution": 0.9498285741182252,
+      "best_symbol_contribution": 1.4043662070677123,
+      "positive_month_rate": 0.5833333333333334,
+      "positive_symbol_rate": 0.625
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_5",
+      "dislocation_definition": "bottom_2_performer",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 518,
+      "trades_year": 81.72764578833693,
+      "avg_return_pct": 0.07704155827799003,
+      "median_return_pct": 0.06796419025053799,
+      "win_rate": 0.5115830115830116,
+      "cumulative_return_units": 0.39907527187998837,
+      "max_drawdown_units": -1.024053561799575,
+      "sharpe_like": 0.5519970414441921,
+      "profit_factor": 1.0871905952999832,
+      "best_month_contribution": 0.9498285741182252,
+      "best_symbol_contribution": 1.4043662070677123,
+      "positive_month_rate": 0.5833333333333334,
+      "positive_symbol_rate": 0.625
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_6",
+      "dislocation_definition": "symbol_zscore_le_-1",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 1538,
+      "trades_year": 242.6585313174946,
+      "avg_return_pct": 0.015566282255824064,
+      "median_return_pct": 0.099928845337074,
+      "win_rate": 0.5273081924577373,
+      "cumulative_return_units": 0.23940942109457408,
+      "max_drawdown_units": -2.423004028870453,
+      "sharpe_like": 0.21704516987972078,
+      "profit_factor": 1.0193490782717083,
+      "best_month_contribution": 3.986039108041825,
+      "best_symbol_contribution": 1.2294753968635581,
+      "positive_month_rate": 0.5,
+      "positive_symbol_rate": 0.5
+    },
+    {
+      "event_definition": "breadth_down_1pct_ge_6",
+      "dislocation_definition": "symbol_zscore_le_-2",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "base",
+      "total_trades": 1356,
+      "trades_year": 213.94341252699783,
+      "avg_return_pct": 0.0015484151743723347,
+      "median_return_pct": 0.04677120392761143,
+      "win_rate": 0.5191740412979351,
+      "cumulative_return_units": 0.020996509764488858,
+      "max_drawdown_units": -2.316105198278421,
+      "sharpe_like": 0.01978048300637402,
+      "profit_factor": 1.0019228373991405,
+      "best_month_contribution": 39.21625768105053,
+      "best_symbol_contribution": 11.26545515076139,
+      "positive_month_rate": 0.5,
+      "positive_symbol_rate": 0.375
+    }
+  ],
+  "best_key_for_cap_test": {
+    "event_definition": "breadth_down_2pct_ge_4",
+    "dislocation_definition": "symbol_zscore_le_-2",
+    "entry_mode": "next_close",
+    "exit_model": "fixed_horizon_12",
+    "friction_case": "base"
+  },
+  "matched_stress_for_best_key": [
+    {
+      "event_definition": "breadth_down_2pct_ge_4",
+      "dislocation_definition": "symbol_zscore_le_-2",
+      "entry_mode": "next_close",
+      "exit_model": "fixed_horizon_12",
+      "friction_case": "stress",
+      "total_trades": 308,
+      "trades_year": 48.594816414686825,
+      "avg_return_pct": 0.5414593772686178,
+      "median_return_pct": -0.05940690074771147,
+      "win_rate": 0.4837662337662338,
+      "cumulative_return_units": 1.6676948819873427,
+      "max_drawdown_units": -0.8706692989432558,
+      "sharpe_like": 2.170792260009564,
+      "profit_factor": 1.6338694125128295,
+      "best_month_contribution": 0.7739282039623807,
+      "best_symbol_contribution": 0.31803530578760664,
+      "positive_month_rate": 0.5833333333333334,
+      "positive_symbol_rate": 1.0
+    }
+  ],
+  "cap_comparison": [
+    {
+      "total_trades": 308,
+      "trades_year": 48.594816414686825,
+      "avg_return_pct": 0.7222112629646759,
+      "median_return_pct": 0.12074381778616425,
+      "win_rate": 0.5551948051948052,
+      "cumulative_return_units": 2.2244106899312017,
+      "max_drawdown_units": -0.7039449599105121,
+      "sharpe_like": 2.8925598070290377,
+      "profit_factor": 1.9415698892398832,
+      "best_month_contribution": 0.6261816311136019,
+      "best_symbol_contribution": 0.269462992997945,
+      "positive_month_rate": 0.6666666666666666,
+      "positive_symbol_rate": 1.0,
+      "cap_scenario": "unlimited",
+      "trades_taken": 308,
+      "trades_skipped": 0,
+      "skip_rate": 0.0
+    },
+    {
+      "total_trades": 278,
+      "trades_year": 43.861555075593955,
+      "avg_return_pct": 0.38251861291941797,
+      "median_return_pct": 0.099928845337074,
+      "win_rate": 0.5503597122302158,
+      "cumulative_return_units": 1.063401743915982,
+      "max_drawdown_units": -0.48410094431077466,
+      "sharpe_like": 1.8291246766673028,
+      "profit_factor": 1.520700184521822,
+      "best_month_contribution": 0.4068314201030744,
+      "best_symbol_contribution": 0.4690274139343202,
+      "positive_month_rate": 0.6666666666666666,
+      "positive_symbol_rate": 0.875,
+      "cap_scenario": "cap10_symbol2_largest_dislocation",
+      "trades_taken": 278,
+      "trades_skipped": 30,
+      "skip_rate": 0.09740259740259741
+    }
+  ],
+  "panic_reversal_baseline": {
+    "name": "panic_reversal_extended_primary",
+    "trades": 966,
+    "cumulative_return_units": 26.8981,
+    "avg_return_pct": 2.7845,
+    "median_return_pct": 1.7634,
+    "win_rate": 0.646,
+    "note": "Reference from management-approved Panic-Reversal extended validation."
+  },
+  "pass_fail": {
+    "positive_candidate_found": true,
+    "candidate_beats_panic_reversal_avg_return": false,
+    "criteria": [
+      ">=300 trades",
+      "avg and median return positive after base friction",
+      "stress remains positive or near-flat",
+      "month concentration better than Panic Reversal",
+      "capital efficiency likely better than Panic Reversal",
+      "execution is clean"
+    ],
+    "phase1_pass": false,
+    "note": "Positive dislocation candidates exist, but Phase 1 pass also requires evidence of better return potential/capital efficiency than Panic-Reversal."
+  },
+  "reports": {
+    "event_scan_summary": "reports\\cross_asset_dislocation\\event_scan_summary.csv",
+    "feasibility_results": "reports\\cross_asset_dislocation\\feasibility_results.csv",
+    "trade_returns_sample": "reports\\cross_asset_dislocation\\trade_returns_sample.csv",
+    "by_symbol": "reports\\cross_asset_dislocation\\by_symbol.csv",
+    "by_month": "reports\\cross_asset_dislocation\\by_month.csv",
+    "execution_comparison": "reports\\cross_asset_dislocation\\execution_comparison.csv",
+    "cap_comparison": "reports\\cross_asset_dislocation\\cap_comparison.csv",
+    "data_quality_report": "reports\\cross_asset_dislocation\\data_quality_report.csv",
+    "phase1_summary": "reports\\cross_asset_dislocation\\phase1_summary.json"
+  }
+}
