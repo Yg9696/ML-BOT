@@ -1,0 +1,10 @@
+symbol,timeframe,first_timestamp,last_timestamp,row_count,missing_intervals,retrievable_span_days,stop_reason,usable_for_6_month_test,usable_for_12_month_test,usable_for_2020_2026_test
+BTCUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+ETHUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+SOLUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+BNBUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+XRPUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+ADAUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+AVAXUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+LINKUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
+LTCUSDT,15m,2026-04-07T11:00:00+00:00,2026-05-07T10:45:00+00:00,2880,0,29.989583333333332,empty_response,false,false,false
